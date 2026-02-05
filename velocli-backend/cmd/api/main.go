@@ -36,7 +36,7 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(lemonService, jwtService, customersRepo)
 	bricksHandler := handlers.NewBricksHandler(customersRepo)
-	lemonWebhook := handlers.NewLemonWebhookHandler(cfg.LemonWebhookSecret, cfg.LemonStoreID, customersRepo)
+	lemonWebhook := handlers.NewLemonWebhookHandler(cfg.LemonWebhookSecret, cfg.LemonStoreID, cfg.VerifyLemonWebhookSignature, customersRepo)
 
 	app := httpapi.NewApp(cfg, httpapi.Deps{
 		LemonWebhook: lemonWebhook,

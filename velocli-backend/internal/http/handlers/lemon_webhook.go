@@ -16,13 +16,15 @@ import (
 type LemonWebhookHandler struct {
 	webhookSecret []byte
 	storeID       int64
+	verifySignature bool
 	customers     *repository.CustomersRepository
 }
 
-func NewLemonWebhookHandler(webhookSecret string, storeID int64, customers *repository.CustomersRepository) *LemonWebhookHandler {
+func NewLemonWebhookHandler(webhookSecret string, storeID int64, verifySignature bool, customers *repository.CustomersRepository) *LemonWebhookHandler {
 	return &LemonWebhookHandler{
 		webhookSecret: []byte(webhookSecret),
 		storeID:       storeID,
+		verifySignature: verifySignature,
 		customers:     customers,
 	}
 }
@@ -35,8 +37,10 @@ func (h *LemonWebhookHandler) Handle() fiber.Handler {
 		}
 
 		rawBody := c.Body()
-		if !lemonsqueezy.VerifySignature(rawBody, h.webhookSecret, c.Get("X-Signature")) {
-			return c.SendStatus(fiber.StatusUnauthorized)
+		if h.verifySignature {
+			if !lemonsqueezy.VerifySignature(rawBody, h.webhookSecret, c.Get("X-Signature")) {
+				return c.SendStatus(fiber.StatusUnauthorized)
+			}
 		}
 
 		var env lemonsqueezy.WebhookEnvelope
@@ -55,7 +59,7 @@ func (h *LemonWebhookHandler) Handle() fiber.Handler {
 			if err := json.Unmarshal(env.Data, &res); err != nil {
 				return fiber.NewError(fiber.StatusBadRequest, "invalid subscription data")
 			}
-			if res.Attributes.StoreID != h.storeID {
+			if h.storeID != 0 && res.Attributes.StoreID != h.storeID {
 				return c.SendStatus(fiber.StatusOK)
 			}
 			lemonCustomerID := strconv.FormatInt(res.Attributes.CustomerID, 10)
@@ -72,7 +76,7 @@ func (h *LemonWebhookHandler) Handle() fiber.Handler {
 			if err := json.Unmarshal(env.Data, &res); err != nil {
 				return fiber.NewError(fiber.StatusBadRequest, "invalid license key data")
 			}
-			if res.Attributes.StoreID != h.storeID {
+			if h.storeID != 0 && res.Attributes.StoreID != h.storeID {
 				return c.SendStatus(fiber.StatusOK)
 			}
 			lemonCustomerID := strconv.FormatInt(res.Attributes.CustomerID, 10)

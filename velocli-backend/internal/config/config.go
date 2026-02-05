@@ -20,12 +20,15 @@ type Config struct {
 	LemonProductID    *int64
 	LemonVariantID    *int64
 	LemonWebhookSecret string
+	VerifyLemonWebhookSignature bool
 	TokenTTL          time.Duration
 }
 
 func Load() (Config, error) {
 	var cfg Config
 	cfg.Env = strings.TrimSpace(getenv("APP_ENV", "dev"))
+	_ = loadDotEnvFor(cfg.Env)
+
 	cfg.HTTPHost = strings.TrimSpace(getenv("HTTP_HOST", "0.0.0.0"))
 	cfg.HTTPPort = mustInt(getenv("HTTP_PORT", "8080"))
 	cfg.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
@@ -35,6 +38,13 @@ func Load() (Config, error) {
 	cfg.LemonProductID = optionalInt64(os.Getenv("LEMON_SQUEEZY_PRODUCT_ID"))
 	cfg.LemonVariantID = optionalInt64(os.Getenv("LEMON_SQUEEZY_VARIANT_ID"))
 	cfg.LemonWebhookSecret = strings.TrimSpace(os.Getenv("LEMON_WEBHOOK_SECRET"))
+	cfg.VerifyLemonWebhookSignature = strings.ToLower(strings.TrimSpace(getenv("LEMON_WEBHOOK_VERIFY", ""))) != "0"
+	if strings.EqualFold(cfg.Env, "dev") && getenv("LEMON_WEBHOOK_VERIFY", "") == "" {
+		cfg.VerifyLemonWebhookSignature = false
+	}
+	if strings.EqualFold(cfg.Env, "dev") && cfg.LemonWebhookSecret == "" {
+		cfg.LemonWebhookSecret = "VELOCLI_DEV_WEBHOOK_SECRET"
+	}
 	cfg.TokenTTL = mustDuration(getenv("TOKEN_TTL", "168h"))
 
 	var missing []string
@@ -44,14 +54,16 @@ func Load() (Config, error) {
 	if cfg.JWTSigningKey == "" {
 		missing = append(missing, "JWT_SIGNING_KEY")
 	}
-	if cfg.LemonAPIKey == "" {
-		missing = append(missing, "LEMON_SQUEEZY_API_KEY")
-	}
-	if cfg.LemonStoreID == 0 {
-		missing = append(missing, "LEMON_SQUEEZY_STORE_ID")
-	}
-	if cfg.LemonWebhookSecret == "" {
-		missing = append(missing, "LEMON_WEBHOOK_SECRET")
+	if !strings.EqualFold(cfg.Env, "dev") {
+		if cfg.LemonAPIKey == "" {
+			missing = append(missing, "LEMON_SQUEEZY_API_KEY")
+		}
+		if cfg.LemonStoreID == 0 {
+			missing = append(missing, "LEMON_SQUEEZY_STORE_ID")
+		}
+		if cfg.LemonWebhookSecret == "" {
+			missing = append(missing, "LEMON_WEBHOOK_SECRET")
+		}
 	}
 
 	if len(missing) > 0 {
