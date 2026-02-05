@@ -65,3 +65,27 @@ func (r *CustomersRepository) UpdateStatus(ctx context.Context, lemonCustomerID 
 	}
 	return true, nil
 }
+
+func (r *CustomersRepository) GetByLemonCustomerID(ctx context.Context, lemonCustomerID string) (*domain.Customer, error) {
+	var c domain.Customer
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, lemon_customer_id, license_key, subscription_status, expires_at, created_at, updated_at
+		FROM customers
+		WHERE lemon_customer_id = $1
+	`, lemonCustomerID).Scan(
+		&c.ID,
+		&c.LemonCustomerID,
+		&c.LicenseKeyDigest,
+		&c.SubscriptionStatus,
+		&c.ExpiresAt,
+		&c.CreatedAt,
+		&c.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &c, nil
+}

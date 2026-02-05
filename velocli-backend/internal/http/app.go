@@ -6,11 +6,14 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/velocli/velocli/velocli-backend/internal/config"
 	"github.com/velocli/velocli/velocli-backend/internal/http/handlers"
+	"github.com/velocli/velocli/velocli-backend/internal/service"
 )
 
 type Deps struct {
 	LemonWebhook *handlers.LemonWebhookHandler
 	Auth         *handlers.AuthHandler
+	Bricks       *handlers.BricksHandler
+	JWT          *service.JWTService
 }
 
 func NewApp(cfg config.Config, deps Deps) *fiber.App {

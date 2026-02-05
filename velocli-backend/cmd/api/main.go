@@ -35,11 +35,14 @@ func main() {
 	jwtService := service.NewJWTService([]byte(cfg.JWTSigningKey), cfg.TokenTTL)
 
 	authHandler := handlers.NewAuthHandler(lemonService, jwtService, customersRepo)
+	bricksHandler := handlers.NewBricksHandler(customersRepo)
 	lemonWebhook := handlers.NewLemonWebhookHandler(cfg.LemonWebhookSecret, cfg.LemonStoreID, customersRepo)
 
 	app := httpapi.NewApp(cfg, httpapi.Deps{
 		LemonWebhook: lemonWebhook,
 		Auth:         authHandler,
+		Bricks:       bricksHandler,
+		JWT:          jwtService,
 	})
 
 	go func() {
