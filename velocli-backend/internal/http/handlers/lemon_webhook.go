@@ -2,10 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -39,7 +35,7 @@ func (h *LemonWebhookHandler) Handle() fiber.Handler {
 		}
 
 		rawBody := c.Body()
-		if !verifyLemonSignature(rawBody, h.webhookSecret, c.Get("X-Signature")) {
+		if !lemonsqueezy.VerifySignature(rawBody, h.webhookSecret, c.Get("X-Signature")) {
 			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 
@@ -92,23 +88,6 @@ func (h *LemonWebhookHandler) Handle() fiber.Handler {
 			return c.SendStatus(fiber.StatusOK)
 		}
 	}
-}
-
-func verifyLemonSignature(rawBody []byte, secret []byte, signature string) bool {
-	signature = strings.TrimSpace(signature)
-	if signature == "" {
-		return false
-	}
-
-	mac := hmac.New(sha256.New, secret)
-	_, _ = mac.Write(rawBody)
-	expected := []byte(hex.EncodeToString(mac.Sum(nil)))
-	received := []byte(signature)
-
-	if len(expected) != len(received) {
-		return false
-	}
-	return subtle.ConstantTimeCompare(expected, received) == 1
 }
 
 func normalizeSubscriptionStatus(v string) domain.SubscriptionStatus {
