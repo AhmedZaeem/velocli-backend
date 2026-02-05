@@ -13,6 +13,7 @@ import (
 	"github.com/velocli/velocli/velocli-backend/internal/http/handlers"
 	"github.com/velocli/velocli/velocli-backend/internal/platform/postgres"
 	"github.com/velocli/velocli/velocli-backend/internal/repository"
+	"github.com/velocli/velocli/velocli-backend/internal/service"
 )
 
 func main() {
@@ -30,10 +31,15 @@ func main() {
 	defer pool.Close()
 
 	customersRepo := repository.NewCustomersRepository(pool, []byte(cfg.JWTSigningKey))
+	lemonService := service.NewLemonSqueezyService(cfg.LemonAPIKey, cfg.LemonStoreID, cfg.LemonProductID, cfg.LemonVariantID)
+	jwtService := service.NewJWTService([]byte(cfg.JWTSigningKey), cfg.TokenTTL)
+
+	authHandler := handlers.NewAuthHandler(lemonService, jwtService, customersRepo)
 	lemonWebhook := handlers.NewLemonWebhookHandler(cfg.LemonWebhookSecret, cfg.LemonStoreID, customersRepo)
 
 	app := httpapi.NewApp(cfg, httpapi.Deps{
 		LemonWebhook: lemonWebhook,
+		Auth:         authHandler,
 	})
 
 	go func() {

@@ -10,6 +10,7 @@ import (
 
 type Deps struct {
 	LemonWebhook *handlers.LemonWebhookHandler
+	Auth         *handlers.AuthHandler
 }
 
 func NewApp(cfg config.Config, deps Deps) *fiber.App {
