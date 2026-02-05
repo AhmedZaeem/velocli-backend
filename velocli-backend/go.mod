@@ -6,6 +6,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.8.0
+	github.com/velocli/velocli/velocli-shared v0.0.0
 )
 
 require (
@@ -26,3 +27,5 @@ require (
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
+
+replace github.com/velocli/velocli/velocli-shared => ../velocli-shared
