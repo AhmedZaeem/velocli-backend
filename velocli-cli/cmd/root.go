@@ -16,5 +16,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.SetErr(os.Stderr)
 	rootCmd.SilenceUsage = true
 
+	rootCmd.AddCommand(NewLoginCmd())
+
 	return rootCmd
 }
