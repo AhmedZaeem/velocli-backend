@@ -5,9 +5,14 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/velocli/velocli/velocli-backend/internal/config"
+	"github.com/velocli/velocli/velocli-backend/internal/http/handlers"
 )
 
-func NewApp(cfg config.Config) *fiber.App {
+type Deps struct {
+	LemonWebhook *handlers.LemonWebhookHandler
+}
+
+func NewApp(cfg config.Config, deps Deps) *fiber.App {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			status := fiber.StatusInternalServerError
@@ -20,6 +25,6 @@ func NewApp(cfg config.Config) *fiber.App {
 		},
 	})
 
-	registerRoutes(app, cfg)
+	registerRoutes(app, cfg, deps)
 	return app
 }
