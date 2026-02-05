@@ -37,12 +37,14 @@ func main() {
 	authHandler := handlers.NewAuthHandler(lemonService, jwtService, customersRepo)
 	bricksHandler := handlers.NewBricksHandler(customersRepo)
 	lemonWebhook := handlers.NewLemonWebhookHandler(cfg.LemonWebhookSecret, cfg.LemonStoreID, cfg.VerifyLemonWebhookSignature, customersRepo)
+	testSimulator := handlers.NewTestSimulatorHandler(customersRepo)
 
 	app := httpapi.NewApp(cfg, httpapi.Deps{
 		LemonWebhook: lemonWebhook,
 		Auth:         authHandler,
 		Bricks:       bricksHandler,
 		JWT:          jwtService,
+		TestSimulator: testSimulator,
 	})
 
 	go func() {

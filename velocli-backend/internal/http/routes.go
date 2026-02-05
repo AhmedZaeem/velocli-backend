@@ -18,6 +18,9 @@ func registerRoutes(app *fiber.App, cfg config.Config, deps Deps) {
 		app.Post("/webhooks/lemon", deps.LemonWebhook.Handle())
 		apiV1.Post("/webhooks/lemon", deps.LemonWebhook.Handle())
 	}
+	if deps.TestSimulator != nil {
+		apiV1.Post("/test/simulate-purchase", deps.TestSimulator.SimulatePurchase())
+	}
 	if deps.Bricks != nil && deps.JWT != nil {
 		protected := app.Group("", middleware.JWTAuth(deps.JWT))
 		protected.Get("/bricks/:brick_id", deps.Bricks.GetBrick())

@@ -14,6 +14,7 @@ type Deps struct {
 	Auth         *handlers.AuthHandler
 	Bricks       *handlers.BricksHandler
 	JWT          *service.JWTService
+	TestSimulator *handlers.TestSimulatorHandler
 }
 
 func NewApp(cfg config.Config, deps Deps) *fiber.App {
