@@ -1,6 +1,6 @@
 module github.com/velocli/velocli/velocli-backend
 
-go 1.25
+go 1.24.0
 
 require golang.org/x/crypto v0.47.0
 
