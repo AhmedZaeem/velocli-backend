@@ -1,0 +1,17 @@
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="veloBg" x1="6" y1="6" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#020617"/>
+            <stop offset="1" stop-color="#020617"/>
+        </linearGradient>
+        <linearGradient id="veloTrail" x1="10" y1="14" x2="30" y2="28" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#22C55E"/>
+            <stop offset="1" stop-color="#38BDF8"/>
+        </linearGradient>
+    </defs>
+    <rect x="5" y="5" width="30" height="30" rx="10" fill="url(#veloBg)"/>
+    <path d="M11 24L19 12H24L16 24H11Z" fill="url(#veloTrail)"/>
+    <path d="M16 26L24 14H27L19 26H16Z" fill="#38BDF8" opacity="0.8"/>
+    <path d="M14 18H26" stroke="#4ADE80" stroke-width="1.2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M14 21H24" stroke="#38BDF8" stroke-width="1.2" stroke-linecap="round" opacity="0.7"/>
+</svg>

@@ -1,23 +1,8 @@
 .DS_Store
 
-.env
-.env.*
+output/
 
-*.log
-
-velocli-backend/bin/
-velocli-backend/tmp/
-velocli-backend/coverage/
-
-velocli-cli/bin/
-velocli-cli/tmp/
-
-velocli-admin/build/
-velocli-admin/.dart_tool/
-velocli-admin/.flutter-plugins
-velocli-admin/.flutter-plugins-dependencies
-velocli-admin/.metadata
-velocli-admin/.idea/
-
-node_modules/
-dist/
+velocli-cli/bin/velocli
+velocli-backend/data/
+veloplugin/.intellijPlatform/
+veloplugin/.idea/

@@ -1,0 +1,42 @@
+<idea-plugin>
+    <id>cloud.azaeem.veloplugin</id>
+    <name>Velo Assistant</name>
+    <vendor>VeloLabs</vendor>
+    <description><![CDATA[
+        Velo Assistant is a guided project bootstrapper for Flutter developers, built to feel
+        like a native part of Android Studio.
+
+        It helps you:
+        • Choose your Flutter SDK version and project location from a single, simple dialog.
+        • Define your application id / package name and basic project metadata.
+        • Pick VeloLabs feature blocks and starting templates that match what you are building.
+        • Generate a clean Flutter project with structure, imports, and dependencies wired in.
+
+        Under the hood, Velo Assistant keeps all feature blocks and templates aligned with
+        current Flutter practices and package versions, so new projects start from code that
+        is up to date, readable, and easy to extend.
+    ]]></description>
+    <depends>com.intellij.modules.androidstudio</depends>
+    <depends>io.flutter</depends>
+    <resource-bundle>messages.MyMessageBundle</resource-bundle>
+    <extensions defaultExtensionNs="com.intellij">
+        <moduleType id="VELO_MODULE_TYPE"
+                    implementationClass="cloud.azaeem.veloplugin.VeloModuleType"/>
+        <moduleBuilder builderClass="cloud.azaeem.veloplugin.VeloModuleBuilder"/>
+        <toolWindow id="VeloCli"
+                    anchor="right"
+                    factoryClass="cloud.azaeem.veloplugin.VeloToolWindowFactory"
+                    canCloseContent="false"
+                    stripeTitle="VeloCLI"/>
+    </extensions>
+    <actions defaultExtensionNs="com.intellij">
+        <action id="cloud.azaeem.veloplugin.NewVeloProjectAction"
+                class="cloud.azaeem.veloplugin.VeloModuleBuilder$NewVeloProjectAction"
+                text="Velo Flutter Project..."
+                description="Create a new Flutter project from VeloLabs feature blocks and templates"
+                icon="/icons/velo.svg">
+            <add-to-group group-id="NewGroup" anchor="last"/>
+            <add-to-group group-id="WelcomeScreen.CreateProject" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
