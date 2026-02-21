@@ -24,6 +24,7 @@ type Catalog struct {
 	Categories    []Category     `json:"categories"`
 	Blocks        []Block        `json:"blocks"`
 	MainTemplates []MainTemplate `json:"mainTemplates"`
+	Patterns      []Pattern      `json:"patterns"`
 }
 
 type Category struct {
@@ -53,6 +54,16 @@ type MainTemplate struct {
 	Content string            `json:"content"`
 	BlobID  string            `json:"blobId,omitempty"`
 	Deps    map[string]string `json:"deps,omitempty"`
+}
+
+type Pattern struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	BasePath    string `json:"basePath"`
+	Placeholder string `json:"placeholder"`
+	BlobID      string `json:"blobId"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type Store struct {
@@ -408,6 +419,132 @@ func (s *Store) GetEncryptedTemplateBlob(templateID string) ([]byte, MainTemplat
 		return data, t, nil
 	}
 	return nil, MainTemplate{}, errors.New("template not found")
+}
+
+func (s *Store) UpsertPattern(p Pattern, encryptedBlob []byte) error {
+	if p.ID == "" {
+		p.ID = randID("pat")
+	}
+	if p.BlobID == "" {
+		p.BlobID = randID("blob")
+	}
+	if p.UpdatedAt == "" {
+		p.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		p.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+
+	if err := os.MkdirAll(s.blobDir, 0o755); err != nil {
+		return err
+	}
+	blobPath := filepath.Join(s.blobDir, p.BlobID+".bin")
+	if err := writeFileAtomic(blobPath, encryptedBlob, 0o600); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	found := false
+	for i := range s.catalog.Patterns {
+		if s.catalog.Patterns[i].ID == p.ID {
+			s.catalog.Patterns[i] = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.catalog.Patterns = append(s.catalog.Patterns, p)
+	}
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
+	s.notifyCatalogChanged()
+	return nil
+}
+
+func (s *Store) UpsertPatternMeta(p Pattern) error {
+	if p.ID == "" {
+		return errors.New("missing id")
+	}
+	if p.UpdatedAt == "" {
+		p.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	} else {
+		p.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.catalog.Patterns {
+		if s.catalog.Patterns[i].ID != p.ID {
+			continue
+		}
+		if p.BlobID == "" {
+			p.BlobID = s.catalog.Patterns[i].BlobID
+		}
+		s.catalog.Patterns[i] = p
+		if err := s.saveLocked(); err != nil {
+			return err
+		}
+		s.notifyCatalogChanged()
+		return nil
+	}
+	return errors.New("pattern not found")
+}
+
+func (s *Store) DeletePattern(id string) error {
+	if id == "" {
+		return errors.New("missing id")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := -1
+	var blobID string
+	for i := range s.catalog.Patterns {
+		if s.catalog.Patterns[i].ID == id {
+			idx = i
+			blobID = s.catalog.Patterns[i].BlobID
+			break
+		}
+	}
+	if idx == -1 {
+		return errors.New("pattern not found")
+	}
+
+	s.catalog.Patterns = append(s.catalog.Patterns[:idx], s.catalog.Patterns[idx+1:]...)
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
+
+	if blobID != "" {
+		_ = os.Remove(filepath.Join(s.blobDir, blobID+".bin"))
+	}
+	s.notifyCatalogChanged()
+	return nil
+}
+
+func (s *Store) GetEncryptedPatternBlob(patternID string) ([]byte, Pattern, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, p := range s.catalog.Patterns {
+		if p.ID != patternID {
+			continue
+		}
+		if p.BlobID == "" {
+			return nil, Pattern{}, errors.New("missing blob")
+		}
+		blobPath := filepath.Join(s.blobDir, p.BlobID+".bin")
+		data, err := os.ReadFile(blobPath)
+		if err != nil {
+			return nil, Pattern{}, err
+		}
+		return data, p, nil
+	}
+	return nil, Pattern{}, errors.New("pattern not found")
 }
 
 func (s *Store) Encrypt(plaintext []byte) ([]byte, error) {

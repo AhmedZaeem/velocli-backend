@@ -10,12 +10,18 @@ import com.intellij.ide.util.projectWizard.WizardContext
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.module.ModuleType
 import com.intellij.openapi.module.ModuleTypeManager
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
@@ -27,6 +33,8 @@ import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URI
 import java.net.http.HttpClient
@@ -61,6 +69,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JScrollPane
+import javax.swing.SwingUtilities
 
 class VeloModuleBuilder : ModuleBuilder() {
     private var projectName: String = "my_app"
@@ -86,7 +95,7 @@ class VeloModuleBuilder : ModuleBuilder() {
 
         val selectionDialog = VeloSelectionDialog(modifiableRootModel.project, catalog)
         if (!selectionDialog.showAndGet()) {
-            throw ConfigurationException("Velo project creation cancelled")
+            return
         }
 
         val selectedBlocks = selectionDialog.getSelectedBlocks()
@@ -102,6 +111,77 @@ class VeloModuleBuilder : ModuleBuilder() {
             )
         } catch (e: Exception) {
             throw ConfigurationException("Failed to create project with Velo backend: ${e.message}")
+        }
+    }
+
+    class NewPatternAction : AnAction("New Pattern", "Create a new feature pattern from Velo", null) {
+        override fun update(e: AnActionEvent) {
+            val vFile = e.getData(CommonDataKeys.VIRTUAL_FILE)
+            e.presentation.isEnabledAndVisible = vFile != null && vFile.isDirectory
+        }
+
+        override fun actionPerformed(e: AnActionEvent) {
+            val project = e.project ?: return
+            val vFile = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
+            if (!vFile.isDirectory) return
+
+            val builder = VeloModuleBuilder()
+            val catalog = try {
+                builder.loadCatalog()
+            } catch (ex: Exception) {
+                val msg = ex.message ?: "Unknown error from backend"
+                Messages.showErrorDialog(project, "Failed to load patterns from backend: $msg", "Velo Patterns")
+                return
+            }
+
+            if (catalog.patterns.isEmpty()) {
+                Messages.showInfoMessage(project, "No patterns configured in the Velo admin dashboard.", "Velo Patterns")
+                return
+            }
+
+            val options = catalog.patterns.map { it.label.ifBlank { it.id } }.toTypedArray()
+            val initial = options.firstOrNull()
+            val selectedLabel = Messages.showEditableChooseDialog(
+                "Select a pattern to apply into this directory.",
+                "New Pattern",
+                null,
+                options,
+                initial,
+                null
+            ) ?: return
+
+            val pattern = catalog.patterns.firstOrNull { it.label == selectedLabel || it.id == selectedLabel } ?: return
+
+            val featureName = Messages.showInputDialog(
+                project,
+                "Enter feature name. This replaces the pattern placeholder.",
+                "Feature Name",
+                null
+            )?.trim().orEmpty()
+            if (featureName.isEmpty()) return
+
+            val api = builder.resolveApiBaseUrl()
+            val key = builder.loadEncryptionKey()
+            val cacheDir = builder.resolveCacheDir()
+            builder.purgeOldCache(cacheDir, Duration.ofDays(30))
+
+            val encrypted = try {
+                builder.getEncryptedPatternBlob(api, cacheDir, pattern.id)
+            } catch (ex: Exception) {
+                val msg = ex.message ?: "Unknown error"
+                Messages.showErrorDialog(project, "Failed to download pattern: $msg", "Velo Patterns")
+                return
+            }
+
+            val plain = try {
+                builder.decryptPayload(key, encrypted)
+            } catch (ex: Exception) {
+                val msg = ex.message ?: "Unknown error"
+                Messages.showErrorDialog(project, "Failed to decrypt pattern payload: $msg", "Velo Patterns")
+                return
+            }
+
+            builder.applyPatternToDirectory(project, vFile, pattern, featureName, plain)
         }
     }
 
@@ -322,7 +402,8 @@ class VeloModuleBuilder : ModuleBuilder() {
     data class Catalog(
         val categories: List<CatalogCategory> = emptyList(),
         val blocks: List<CatalogBlock> = emptyList(),
-        val mainTemplates: List<CatalogTemplate> = emptyList()
+        val mainTemplates: List<CatalogTemplate> = emptyList(),
+        val patterns: List<CatalogPattern> = emptyList()
     )
 
     data class CatalogCategory(
@@ -352,6 +433,16 @@ class VeloModuleBuilder : ModuleBuilder() {
         val content: String = "",
         val blobId: String = "",
         val deps: Map<String, String> = emptyMap()
+    )
+
+    data class CatalogPattern(
+        val id: String = "",
+        val label: String = "",
+        val description: String = "",
+        val basePath: String = "",
+        val placeholder: String = "",
+        val blobId: String = "",
+        val updatedAt: String = ""
     )
 
     private class TemplateItem(val id: String, private val display: String) {
@@ -476,6 +567,86 @@ class VeloModuleBuilder : ModuleBuilder() {
                 }
             }
         }
+    }
+
+    private fun getEncryptedPatternBlob(apiBaseUrl: String, cacheDir: Path, patternId: String): ByteArray {
+        val cachePath = cacheDir.resolve("pattern_$patternId.bin")
+        if (Files.isRegularFile(cachePath)) {
+            Files.setLastModifiedTime(cachePath, FileTime.from(Instant.now()))
+            return Files.readAllBytes(cachePath)
+        }
+        val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build()
+        val url = apiBaseUrl.trimEnd('/') + "/api/v1/patterns/" + patternId + "/download"
+        val request = HttpRequest.newBuilder()
+            .uri(URI(url))
+            .GET()
+            .header("Accept", "application/octet-stream")
+            .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofByteArray())
+        if (response.statusCode() !in 200..299) {
+            throw IllegalStateException("Pattern download failed with HTTP ${response.statusCode()}")
+        }
+        val body = response.body() ?: ByteArray(0)
+        Files.createDirectories(cacheDir)
+        val tmp = cachePath.resolveSibling(cachePath.fileName.toString() + ".tmp")
+        Files.write(tmp, body)
+        Files.move(tmp, cachePath)
+        return body
+    }
+
+    private fun applyPatternToDirectory(
+        project: Project,
+        targetDir: VirtualFile,
+        pattern: CatalogPattern,
+        featureName: String,
+        zipBytes: ByteArray
+    ) {
+        val basePath = if (pattern.basePath.isBlank()) "lib/features" else pattern.basePath
+        val placeholder = if (pattern.placeholder.isBlank()) "{{FEATURE_NAME}}" else pattern.placeholder
+        val targetBase = Paths.get(targetDir.path)
+
+        val zipIn = ZipInputStream(ByteArrayInputStream(zipBytes))
+
+        while (true) {
+            val entry = zipIn.nextEntry ?: break
+            val rawName = entry.name
+            if (rawName.isBlank()) continue
+            val sanitized = sanitizeZipPath(rawName)
+            if (sanitized.isBlank()) continue
+
+            val replacedRelative = sanitized.replace(placeholder, featureName)
+            val relative = Paths.get(basePath).resolve(replacedRelative).normalize()
+            val dest = targetBase.resolve(relative)
+
+            if (entry.isDirectory) {
+                Files.createDirectories(dest)
+                continue
+            }
+
+            Files.createDirectories(dest.parent)
+            val buffer = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            while (true) {
+                val read = zipIn.read(buf)
+                if (read <= 0) break
+                buffer.write(buf, 0, read)
+            }
+            var content = buffer.toByteArray()
+            val text = runCatching { content.toString(Charsets.UTF_8) }.getOrNull()
+            if (text != null) {
+                val replaced = text.replace(placeholder, featureName)
+                content = replaced.toByteArray(Charsets.UTF_8)
+            }
+            Files.write(dest, content)
+        }
+
+        VfsUtil.markDirtyAndRefresh(false, true, true, targetDir)
+
+        ApplicationManager.getApplication().invokeLater({
+            if (!project.isDisposed) {
+                ProjectView.getInstance(project).refresh()
+            }
+        }, ModalityState.NON_MODAL)
     }
 
     private fun loadEncryptionKey(): ByteArray {

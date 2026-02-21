@@ -33,6 +33,10 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/blocks/{id}/download", s.handleDownloadBlock)
 	mux.HandleFunc("POST /api/v1/admin/templates/{id}/zip", s.handleUploadTemplateZip)
 	mux.HandleFunc("GET /api/v1/templates/{id}/download", s.handleDownloadTemplate)
+	mux.HandleFunc("POST /api/v1/admin/patterns", s.handleUploadPattern)
+	mux.HandleFunc("PUT /api/v1/admin/patterns/{id}", s.handleUpdatePatternMeta)
+	mux.HandleFunc("DELETE /api/v1/admin/patterns/{id}", s.handleDeletePattern)
+	mux.HandleFunc("GET /api/v1/patterns/{id}/download", s.handleDownloadPattern)
 	mux.HandleFunc("GET /admin", s.handleAdmin)
 	mux.HandleFunc("GET /", s.handleRoot)
 	return versionMiddleware(mux)
@@ -289,6 +293,107 @@ func (s *server) handleDownloadTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	data, _, err := s.store.GetEncryptedTemplateBlob(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = w.Write(data)
+}
+
+func (s *server) handleUploadPattern(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	metaFile, _, err := r.FormFile("meta")
+	if err != nil {
+		http.Error(w, "missing meta", http.StatusBadRequest)
+		return
+	}
+	defer metaFile.Close()
+
+	metaBytes, err := io.ReadAll(io.LimitReader(metaFile, 1<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var p store.Pattern
+	if err := json.Unmarshal(metaBytes, &p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	zipFile, _, err := r.FormFile("zip")
+	if err != nil {
+		http.Error(w, "missing zip", http.StatusBadRequest)
+		return
+	}
+	defer zipFile.Close()
+
+	zipBytes, err := io.ReadAll(io.LimitReader(zipFile, 64<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.store.UpsertPattern(p, zipBytes); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (s *server) handleUpdatePatternMeta(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var p store.Pattern
+	if err := json.Unmarshal(body, &p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if p.ID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UpsertPatternMeta(p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (s *server) handleDeletePattern(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.DeletePattern(id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (s *server) handleDownloadPattern(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	data, _, err := s.store.GetEncryptedPatternBlob(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -751,6 +856,7 @@ const adminHTML = `<!doctype html>
         <button id="nav-catalog" class="active"><span>Catalog</span><small id="nav-catalog-count">—</small></button>
         <button id="nav-blocks"><span>Blocks</span><small id="nav-blocks-count">—</small></button>
         <button id="nav-templates"><span>Templates</span><small id="nav-templates-count">—</small></button>
+        <button id="nav-patterns"><span>Patterns</span><small id="nav-patterns-count">—</small></button>
       </nav>
       <div style="margin-top: 14px" class="card">
         <div class="subtle">Backend</div>
@@ -931,6 +1037,86 @@ const adminHTML = `<!doctype html>
 
           <div class="grid2" id="tpl-grid"></div>
           <div class="subtle" style="margin-top: 10px">Templates are saved via Save Catalog.</div>
+        </div>
+
+        <div id="view-patterns" style="display:none">
+          <div class="pageTitle">
+            <div>
+              <h2>Patterns</h2>
+              <p>Feature patterns (BLoC, clean arch, etc.) applied from the IDE.</p>
+            </div>
+            <div class="actions">
+              <button class="btn" id="btn-add-pattern">New Pattern</button>
+            </div>
+          </div>
+
+          <div class="grid2">
+            <div class="card">
+              <div class="cardHeader">
+                <h3>Library</h3>
+                <span class="subtle" id="pattern-count">—</span>
+              </div>
+              <div class="row row1" style="margin-bottom: 10px">
+                <div>
+                  <label>Search</label>
+                  <input id="pattern-search" placeholder="Search by label or id" />
+                </div>
+              </div>
+              <div class="list" id="pattern-list"></div>
+            </div>
+
+            <div class="card">
+              <div class="cardHeader">
+                <h3 id="pattern-editor-title">Pattern Editor</h3>
+                <span class="subtle" id="pattern-editor-sub">—</span>
+              </div>
+
+              <div class="row row3">
+                <div>
+                  <label>Pattern ID</label>
+                  <input id="p-id" class="mono" placeholder="Leave empty to auto-generate" />
+                </div>
+                <div>
+                  <label>Label</label>
+                  <input id="p-label" placeholder="Feature (BLoC)" />
+                </div>
+                <div>
+                  <label>Base path inside project</label>
+                  <input id="p-base-path" class="mono" placeholder="lib/features" />
+                </div>
+              </div>
+
+              <div class="row row1">
+                <div>
+                  <label>Description</label>
+                  <input id="p-desc" placeholder="What kind of feature does this scaffold?" />
+                </div>
+              </div>
+
+              <div class="row row1">
+                <div>
+                  <label>Placeholder token in file and folder names</label>
+                  <input id="p-placeholder" class="mono" placeholder="{{FEATURE_NAME}}" />
+                </div>
+              </div>
+
+              <div class="row row1">
+                <div>
+                  <label>Zip file (required for new patterns; optional for updates)</label>
+                  <input id="p-zip" type="file" accept=".zip,application/zip" />
+                </div>
+              </div>
+
+              <div class="subtle" style="margin: 8px 0 14px 0">
+                Use the placeholder token in directory and file names and contents.
+              </div>
+
+              <div class="actions" style="justify-content: flex-end">
+                <button class="btn danger" id="btn-delete-pattern" disabled>Delete</button>
+                <button class="btn primary" id="btn-save-pattern">Save Pattern</button>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -1372,6 +1558,128 @@ function renderTemplates() {
   }
 }
 
+function renderPatterns() {
+  const list = qs("#pattern-list");
+  list.innerHTML = "";
+  const query = (qs("#pattern-search").value || "").toLowerCase();
+  const patterns = catalog.patterns || [];
+  qs("#pattern-count").textContent = patterns.length + " patterns";
+
+  for (const p of patterns) {
+    const hay = (p.label || "") + " " + (p.id || "");
+    if (query && !hay.toLowerCase().includes(query)) continue;
+    const item = document.createElement("div");
+    item.className = "item";
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = p.label || p.id || "Untitled";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = (p.id || "") + (p.basePath ? " · " + p.basePath : "");
+    left.appendChild(title);
+    left.appendChild(meta);
+    item.appendChild(left);
+    item.addEventListener("click", () => {
+      writePatternForm(p);
+    });
+    list.appendChild(item);
+  }
+
+  if (!selectedPatternId && patterns.length > 0) {
+    writePatternForm(patterns[0]);
+  }
+}
+
+let selectedPatternId = "";
+
+function readPatternForm() {
+  const id = qs("#p-id").value.trim();
+  const label = qs("#p-label").value.trim();
+  const desc = qs("#p-desc").value.trim();
+  const basePath = qs("#p-base-path").value.trim() || "lib/features";
+  const placeholder = qs("#p-placeholder").value.trim() || "{{FEATURE_NAME}}";
+  const target = (catalog.patterns || []).find(x => x.id === selectedPatternId) || {};
+  return {
+    id: id || target.id || "",
+    label,
+    description: desc,
+    basePath,
+    placeholder,
+    blobId: target.blobId || "",
+    updatedAt: target.updatedAt || "",
+  };
+}
+
+function writePatternForm(p) {
+  selectedPatternId = p && p.id ? p.id : "";
+  qs("#p-id").value = p?.id || "";
+  qs("#p-label").value = p?.label || "";
+  qs("#p-desc").value = p?.description || "";
+  qs("#p-base-path").value = p?.basePath || "lib/features";
+  qs("#p-placeholder").value = p?.placeholder || "{{FEATURE_NAME}}";
+  qs("#p-zip").value = "";
+  qs("#btn-delete-pattern").disabled = !(p && p.id);
+  qs("#pattern-editor-title").textContent = p && p.id ? "Pattern Editor" : "New Pattern";
+  qs("#pattern-editor-sub").textContent = p && p.id ? "Editing " + p.id : "Create a new pattern";
+}
+
+async function savePattern() {
+  const p = readPatternForm();
+  if (!p.label) return toast("err", "Missing label", "Please add a label.");
+
+  const zip = qs("#p-zip").files && qs("#p-zip").files[0] ? qs("#p-zip").files[0] : null;
+  const isNew = !p.id;
+
+  try {
+    qs("#btn-save-pattern").disabled = true;
+    if (isNew || zip) {
+      if (!zip) throw new Error("Zip file is required for new patterns.");
+      const fd = new FormData();
+      fd.append("meta", new Blob([JSON.stringify(p)], { type: "application/json" }));
+      fd.append("zip", zip);
+      const res = await fetch(apiBase + "/api/v1/admin/patterns", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+    } else {
+      const res = await fetch(apiBase + "/api/v1/admin/patterns/" + encodeURIComponent(p.id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(p),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    }
+    toast("ok", "Saved", "Pattern saved.");
+    await loadCatalog();
+    const latest = (catalog.patterns || []).find(x => x.id === p.id) || null;
+    if (latest) writePatternForm(latest);
+    renderPatterns();
+  } catch (e) {
+    toast("err", "Save failed", e?.message || String(e));
+  } finally {
+    qs("#btn-save-pattern").disabled = false;
+  }
+}
+
+async function deletePattern() {
+  const id = (qs("#p-id").value || "").trim();
+  if (!id) return;
+  if (!confirm("Delete pattern " + id + "?")) return;
+  try {
+    qs("#btn-delete-pattern").disabled = true;
+    const res = await fetch(apiBase + "/api/v1/admin/patterns/" + encodeURIComponent(id), { method: "DELETE" });
+    if (!res.ok) throw new Error(await res.text());
+    toast("ok", "Deleted", "Pattern deleted.");
+    await loadCatalog();
+    selectedPatternId = "";
+    writePatternForm({});
+    renderPatterns();
+  } catch (e) {
+    toast("err", "Delete failed", e?.message || String(e));
+  } finally {
+    qs("#btn-delete-pattern").disabled = false;
+  }
+}
+
 function addTemplateDepRow(root, n, v) {
   const row = document.createElement("div");
   row.className = "item";
@@ -1424,7 +1732,7 @@ async function saveCatalog() {
       }
       return out;
     });
-    const payload = { categories: catalog.categories, mainTemplates: templates, blocks: catalog.blocks };
+    const payload = { categories: catalog.categories, mainTemplates: templates, blocks: catalog.blocks, patterns: catalog.patterns || [] };
     const res = await fetch(apiBase + "/api/v1/admin/catalog", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1599,6 +1907,15 @@ qs("#btn-add-template").addEventListener("click", () => {
   renderTemplates();
 });
 
+qs("#btn-add-pattern").addEventListener("click", () => {
+  selectedPatternId = "";
+  writePatternForm({});
+  renderPatterns();
+});
+qs("#btn-save-pattern").addEventListener("click", savePattern);
+qs("#btn-delete-pattern").addEventListener("click", deletePattern);
+qs("#pattern-search").addEventListener("input", renderPatterns);
+
 qs("#modalClose").addEventListener("click", closeModal);
 qs("#modalBack").addEventListener("click", (e) => { if (e.target === qs("#modalBack")) closeModal(); });
 
@@ -1612,6 +1929,7 @@ qs("#modalBack").addEventListener("click", (e) => { if (e.target === qs("#modalB
     qs("#b-category").value = selId;
     ensureCategoryOptions(qs("#block-category-filter"), true);
     writeBlockForm({});
+    renderPatterns();
     connectStream();
   } catch (e) {
     setStatus("err", "Failed to load");

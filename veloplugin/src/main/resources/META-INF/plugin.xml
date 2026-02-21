@@ -23,11 +23,6 @@
         <moduleType id="VELO_MODULE_TYPE"
                     implementationClass="cloud.azaeem.veloplugin.VeloModuleType"/>
         <moduleBuilder builderClass="cloud.azaeem.veloplugin.VeloModuleBuilder"/>
-        <toolWindow id="VeloCli"
-                    anchor="right"
-                    factoryClass="cloud.azaeem.veloplugin.VeloToolWindowFactory"
-                    canCloseContent="false"
-                    stripeTitle="VeloCLI"/>
     </extensions>
     <actions defaultExtensionNs="com.intellij">
         <action id="cloud.azaeem.veloplugin.NewVeloProjectAction"
@@ -37,6 +32,13 @@
                 icon="/icons/velo.svg">
             <add-to-group group-id="NewGroup" anchor="last"/>
             <add-to-group group-id="WelcomeScreen.CreateProject" anchor="last"/>
+        </action>
+        <action id="cloud.azaeem.veloplugin.NewPatternAction"
+                class="cloud.azaeem.veloplugin.VeloModuleBuilder$NewPatternAction"
+                text="New Pattern"
+                description="Create a new feature using a Velo pattern"
+                icon="/icons/velo.svg">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
