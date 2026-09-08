@@ -1,0 +1,9 @@
+# Runtime data. NEVER commit these — data/.key is a live 32-byte AES key
+# and state.enc / blobs are the ciphertext it decrypts.
+data/
+*.key
+.key
+
+# Build output
+/veloback
+/out/
